@@ -12,6 +12,8 @@ find_package(catkin REQUIRED COMPONENTS roscpp rosconsole pcl_ros pcl_msgs pcl_c
 
 set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/Modules/" ${CMAKE_MODULE_PATH})
 
+# We need Release build type for catkin build with catkin_tools, I have no idea which version, latest update at 02.10.2014
+SET(CMAKE_BUILD_TYPE Release CACHE STRING "Release build" FORCE)
 
 # G2O required
 find_package(G2O REQUIRED)
