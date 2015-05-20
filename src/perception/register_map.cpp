@@ -312,7 +312,8 @@ public:
 
 		pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudIn = pcl::PointCloud<pcl::PointXYZRGB>::Ptr( new pcl::PointCloud<pcl::PointXYZRGB>() );
 		pcl::fromROSMsg(*point_cloud, *pointCloudIn);
-
+    if ( pointCloudIn->points.empty() || (pointCloudIn->points.size() < 10) )
+      return;
 
 		// create mrsmap from pointcloud
 		treeNodeAllocator_->reset();
