@@ -218,7 +218,12 @@ public:
 			ROS_INFO("loading map");
 
 			map_ = boost::shared_ptr< MultiResolutionSurfelMap >( new MultiResolutionSurfelMap( 0.0125f, 30.f ) );
-			map_->load( map_folder_ + "/" + object_name_ + ".map" );
+			if(!map_->load( map_folder_ + "/" + object_name_ + ".map" ))
+			{
+				responseId_++;
+				res.responseId = responseId_;
+				return false;
+			}
 			map_->octree_->root_->establishNeighbors();
 			map_->evaluateSurfels();
 			map_->buildShapeTextureFeatures();
