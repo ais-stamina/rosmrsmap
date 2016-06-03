@@ -70,6 +70,7 @@
 //#include <rosmrsmap/SelectBoundingBox.h>
 //#include <rosmrsmap/TriggerInitialAlignment.h>
 
+
 #include <Eigen/Core>
 
 #include <tf/transform_broadcaster.h>
@@ -92,8 +93,10 @@
 
 
 #include <rosmrsmap/StringService.h>
+#include <rosmrsmap/ObjectPoseService.h>
 #include <std_msgs/Int32.h>
 
+#include <mutex>
 
 using namespace mrsmap;
 
@@ -103,12 +106,13 @@ class SnapshotMap
 {
 public:
 
-    SnapshotMap( ros::NodeHandle& nh ) : nh_( nh ) {
+    SnapshotMap( ros::NodeHandle& nh ) : nh_( nh ),object_available(false) {
 
 		imageAllocator_ = boost::shared_ptr< MultiResolutionSurfelMap::ImagePreAllocator >( new MultiResolutionSurfelMap::ImagePreAllocator() );
 		treeNodeAllocator_ = boost::shared_ptr< spatialaggregate::OcTreeNodeDynamicAllocator< float, MultiResolutionSurfelMap::NodeValue > >( new spatialaggregate::OcTreeNodeDynamicAllocator< float, MultiResolutionSurfelMap::NodeValue >( 10000 ) );
 
 		snapshot_service_ = nh.advertiseService("snapshot", &SnapshotMap::snapshotRequest, this);
+		object_pose_service_ = nh.advertiseService("object_pose", &SnapshotMap::poseRequest, this);
 		pub_cloud = pcl_ros::Publisher<pcl::PointXYZRGB>(nh, "output_cloud", 1);
 
 		pub_status_ = nh.advertise< std_msgs::Int32 >( "status", 1 );
@@ -125,9 +129,34 @@ public:
 		nh.param<std::string>( "init_frame", init_frame_, "" );
 
 		create_map_ = false;
+		do_publish_tf_= true;
 
 		responseId_ = -1;
 
+    }
+
+    bool poseRequest(rosmrsmap::ObjectPoseService::Request &req, rosmrsmap::ObjectPoseService::Response &res){
+
+    	while(!object_available)
+    		ros::Duration(1,0).sleep();
+    	object_mutex.lock();
+    	ROS_INFO("poseRequest got the mutex");
+    	ROS_INFO_STREAM("poseRequest object_tf_="<<object_tf_.getOrigin().getX()<<" "<<object_tf_.getOrigin().getY()<<" "<<object_tf_.getOrigin().getZ());
+    	res.responseId= responseId_ ;
+    	res.object_name = object_name_;
+    	res.pose_frame_id = init_frame_;
+    	//nice way to transform from tf::Vector -> geometryMsgs/Pose
+    	res.object_pose.position.x = object_tf_.getOrigin().getX();
+    	res.object_pose.position.y = object_tf_.getOrigin().getY();
+    	res.object_pose.position.z = object_tf_.getOrigin().getZ();
+
+    	res.object_pose.orientation.x = object_tf_.getRotation().getX();
+    	res.object_pose.orientation.y = object_tf_.getRotation().getY();
+    	res.object_pose.orientation.z = object_tf_.getRotation().getZ();
+    	res.object_pose.orientation.w = object_tf_.getRotation().getW();
+    	object_mutex.unlock();
+    	ROS_INFO("poseRequest released the mutex");
+    	return true;
     }
 
 
@@ -152,6 +181,8 @@ public:
 			return;
 
 		ROS_INFO("creating map");
+		object_mutex.lock();
+		ROS_INFO("dataCallback got the mutex");
 
 
 		pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudIn = pcl::PointCloud<pcl::PointXYZRGB>::Ptr( new pcl::PointCloud<pcl::PointXYZRGB>() );
@@ -167,6 +198,15 @@ public:
 		pcl::computeMeanAndCovarianceMatrix( *pointCloudIn, cov, mean );
 		pcl::eigen33( cov, eigenvectors, eigenvalues );
 
+		/*
+		 * Added comment to this misterious sign change:
+		 * Assuming the eigenvectors of the object come in the camera frame of reference
+		 * this means the unit vector along the Z axis (Eigen::Vector3d::UnitZ()) points away from the camera.
+		 * The LAST eigenvector points upwards/downwards. If their dot product is positive
+		 * means the eigenvector points downwards. This sign change would
+		 * normalize it so that it always points downwards
+		 *
+		 */
 		if( Eigen::Vector3d(eigenvectors.col(0)).dot( Eigen::Vector3d::UnitZ() ) > 0.0 )
 			eigenvectors.col(0) = (-eigenvectors.col(0)).eval();
 
@@ -188,7 +228,7 @@ public:
 
 		objectPointCloud->sensor_origin_ = objectTransformInv.block<4,1>(0,3).cast<float>();
 		objectPointCloud->sensor_orientation_ = Eigen::Quaternionf( objectTransformInv.block<3,3>(0,0).cast<float>() );
-
+		
 		treeNodeAllocator_->reset();
 		map_ = boost::shared_ptr< MultiResolutionSurfelMap >( new MultiResolutionSurfelMap( max_resolution_, max_radius_, treeNodeAllocator_ ) );
 
@@ -206,15 +246,14 @@ public:
 
 		if( init_frame_ != "" ) {
 
-			ROS_INFO_STREAM( "using init frame " << init_frame_ << std::endl );
+			ROS_INFO_STREAM( "Looking up transform from <init_frame>=" << init_frame_ <<" to <point_cloud->header.frame_id>="<<point_cloud->header.frame_id );
 
 			try {
 
 				tf::StampedTransform tf;
 				tf_listener_->lookupTransform( init_frame_, point_cloud->header.frame_id, point_cloud->header.stamp, tf );
-
-								Eigen::Affine3d init_frame_transform;
-								tf::transformTFToEigen( tf, init_frame_transform );
+				Eigen::Affine3d init_frame_transform;
+				tf::transformTFToEigen( tf, init_frame_transform );
 
 				objectTransform = (init_frame_transform.matrix() * objectTransform).eval();
 
@@ -259,13 +298,22 @@ public:
 		else
 			object_tf_.frame_id_ = init_frame_;
 
-		tf_broadcaster.sendTransform( object_tf_ );
+		if(do_publish_tf_){
+			//ROS_INFO_STREAM("object_tf_.frame_id_="<<object_tf_.frame_id_);
+			tf_broadcaster.sendTransform( object_tf_ );
+			first_publication_time = ros::Time::now();
+
+		}
 
 		sub_cloud_.shutdown();
 
 		create_map_ = false;
 
 		responseId_++;
+		object_available = true;
+		object_mutex.unlock();
+
+		ROS_INFO("dataCallback released the mutex");
 
 	}
 
@@ -278,7 +326,16 @@ public:
 		if( cloudv ) {
 
 			object_tf_.stamp_ = ros::Time::now();
-			tf_broadcaster.sendTransform( object_tf_ );
+			if(do_publish_tf_){
+				//ROS_INFO_STREAM("> Snapshot_map :update() object_tf_.frame_id_ (init_frame_)=" << object_tf_.frame_id_ << " child="<< object_tf_.child_frame_id_<<std::endl);
+				tf_broadcaster.sendTransform( object_tf_ );
+
+
+
+				ros::Duration elapsed_time = ros::Time::now() - first_publication_time;
+				if(elapsed_time.toSec()>3)
+					do_publish_tf_ = false;
+			}
 
 			std_msgs::Header header;
 			header.frame_id = object_name_;
@@ -302,9 +359,10 @@ public:
 
 	double max_resolution_, max_radius_, dist_dep_;
 
-	bool create_map_;
+	bool create_map_, do_publish_tf_;
+	ros::Time first_publication_time;
 
-	ros::ServiceServer snapshot_service_;
+	ros::ServiceServer snapshot_service_,object_pose_service_;
 
 	std::string map_folder_;
 	std::string object_name_;
@@ -319,6 +377,9 @@ public:
 	boost::shared_ptr< spatialaggregate::OcTreeNodeDynamicAllocator< float, MultiResolutionSurfelMap::NodeValue > > treeNodeAllocator_;
 
 	int responseId_;
+private:
+	std::mutex object_mutex;
+	bool object_available;
 
 };
 

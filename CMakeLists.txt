@@ -44,6 +44,7 @@ add_message_files(
 
 add_service_files(
   FILES
+  ObjectPoseService.srv
   StringService.srv
   RegisterMap.srv
   ObjectTrackingRequest.srv

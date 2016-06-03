@@ -1,0 +1,7 @@
+int32 requestId
+---
+int32 responseId
+string object_name
+string pose_frame_id
+geometry_msgs/Pose object_pose
+
