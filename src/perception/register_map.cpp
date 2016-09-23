@@ -35,7 +35,6 @@
  *
  */
 
-
 #include <ros/ros.h>
 #include <ros/package.h>
 
@@ -91,43 +90,48 @@
 #include "pcl/visualization/pcl_visualizer.h"
 #include "pcl/common/time.h"
 
-
 #include "pcl/common/centroid.h"
 #include "pcl/common/eigen.h"
-
 
 #include <rosmrsmap/RegisterMap.h>
 #include <rosmrsmap/ObjectTrackingData2.h>
 #include <rosmrsmap/RegisterMapStatus.h>
 #include <std_msgs/Int32.h>
 
-
 using namespace mrsmap;
 
-
-
-class RegisterMap
-{
+class RegisterMap {
 public:
 
-    RegisterMap( ros::NodeHandle& nh ) : nh_( nh ) {
+	RegisterMap(ros::NodeHandle& nh) :
+			nh_(nh) {
 
-		imageAllocator_ = boost::shared_ptr< MultiResolutionSurfelMap::ImagePreAllocator >( new MultiResolutionSurfelMap::ImagePreAllocator() );
-		treeNodeAllocator_ = boost::shared_ptr< spatialaggregate::OcTreeNodeDynamicAllocator< float, MultiResolutionSurfelMap::NodeValue > >( new spatialaggregate::OcTreeNodeDynamicAllocator< float, MultiResolutionSurfelMap::NodeValue >( 10000 ) );
+		imageAllocator_ = boost::shared_ptr<
+				MultiResolutionSurfelMap::ImagePreAllocator>(
+				new MultiResolutionSurfelMap::ImagePreAllocator());
+		treeNodeAllocator_ = boost::shared_ptr<
+				spatialaggregate::OcTreeNodeDynamicAllocator<float,
+						MultiResolutionSurfelMap::NodeValue> >(
+				new spatialaggregate::OcTreeNodeDynamicAllocator<float,
+						MultiResolutionSurfelMap::NodeValue>(10000));
 
-		register_service_ = nh.advertiseService("register", &RegisterMap::registerRequest, this);
-		pub_model_cloud = pcl_ros::Publisher<pcl::PointXYZRGB>(nh, "model_cloud", 1);
-		pub_scene_cloud = pcl_ros::Publisher<pcl::PointXYZRGB>(nh, "scene_cloud", 1);
+		register_service_ = nh.advertiseService("register",
+				&RegisterMap::registerRequest, this);
+		pub_model_cloud = pcl_ros::Publisher<pcl::PointXYZRGB>(nh,
+				"model_cloud", 1);
+		pub_scene_cloud = pcl_ros::Publisher<pcl::PointXYZRGB>(nh,
+				"scene_cloud", 1);
 
-		pub_status_ = nh.advertise< rosmrsmap::RegisterMapStatus >( "status", 1 );
-		
-		pub_result_ = nh.advertise< rosmrsmap::ObjectTrackingData2 >( "result", 1 );
+		pub_status_ = nh.advertise<rosmrsmap::RegisterMapStatus>("status", 1);
 
-		tf_listener_ = boost::shared_ptr< tf::TransformListener >( new tf::TransformListener() );
+		pub_result_ = nh.advertise<rosmrsmap::ObjectTrackingData2>("result", 1);
 
-		nh.param<std::string>( "map_folder", map_folder_, "." );
+		tf_listener_ = boost::shared_ptr<tf::TransformListener>(
+				new tf::TransformListener());
 
-		nh.param<double>( "dist_dep_factor", dist_dep_, 0.005 );
+		nh.param<std::string>("map_folder", map_folder_, ".");
+
+		nh.param<double>("dist_dep_factor", dist_dep_, 0.005);
 
 		register_map_ = false;
 
@@ -137,89 +141,79 @@ public:
 
 		has_transform_ = false;
 
-    }
+	}
 
-    inline bool lookupTransform(const std::string &target_frame,
-                              const std::string &source_frame,
-                              Eigen::Matrix4f &transform,
-                              const ros::Time& stamp = ros::Time(0))
-    {
-       tf::StampedTransform ros_transform;
-       try
-       {
-         //        tf_listener_->lookupTransform (target_frame, cloud_in.header.frame_id, ros::Time(0), ros_transform);
-         //        ROS_ERROR("%f", (ros::Time::now()-cloud_in.header.stamp).toSec());
-         tf_listener_->waitForTransform( target_frame, source_frame, stamp, ros::Duration(0.1));
-         tf_listener_->lookupTransform (target_frame, source_frame, stamp, ros_transform);
-       }
-       catch (tf::LookupException &e)
-       {
-         ROS_ERROR ("%s", e.what ());
-         return (false);
-       }
-       catch (tf::ExtrapolationException &e)
-       {
-         ROS_ERROR ("%s", e.what ());
-         try
-         {
-           tf_listener_->lookupTransform (target_frame, source_frame, ros::Time(0), ros_transform);
-         }
-         catch (tf::LookupException &e)
-         {
-           ROS_ERROR ("%s", e.what ());
-           return (false);
-         }
-         catch (...)
-         {
-           ROS_ERROR ("UNKNOWN EXCEPTION");
-           return false;
-         }
-         //        ROS_ERROR ("%s", e.what ());
-         //        return (false);
-       }
-       catch (const tf::ConnectivityException& e)
-       {
-         ROS_ERROR ("%s", e.what ());
-         return (false);
-       }
-       catch ( const std::exception& e )
-       {
-         ROS_ERROR ("%s", e.what ());
-         return (false);
-       }
-       catch (...)
-       {
-         ROS_ERROR ("UNKNOWN EXCEPTION");
-         return (false);
-       }
+	inline bool lookupTransform(const std::string &target_frame,
+			const std::string &source_frame, Eigen::Matrix4f &transform,
+			const ros::Time& stamp = ros::Time(0)) {
+		tf::StampedTransform ros_transform;
+		try {
+			//        tf_listener_->lookupTransform (target_frame, cloud_in.header.frame_id, ros::Time(0), ros_transform);
+			//        ROS_ERROR("%f", (ros::Time::now()-cloud_in.header.stamp).toSec());
+			tf_listener_->waitForTransform(target_frame, source_frame, stamp,
+					ros::Duration(0.1));
+			tf_listener_->lookupTransform(target_frame, source_frame, stamp,
+					ros_transform);
+		} catch (tf::LookupException &e) {
+			ROS_ERROR("%s", e.what());
+			return (false);
+		} catch (tf::ExtrapolationException &e) {
+			ROS_ERROR("%s", e.what());
+			try {
+				tf_listener_->lookupTransform(target_frame, source_frame,
+						ros::Time(0), ros_transform);
+			} catch (tf::LookupException &e) {
+				ROS_ERROR("%s", e.what());
+				return (false);
+			} catch (...) {
+				ROS_ERROR("UNKNOWN EXCEPTION");
+				return false;
+			}
+			//        ROS_ERROR ("%s", e.what ());
+			//        return (false);
+		} catch (const tf::ConnectivityException& e) {
+			ROS_ERROR("%s", e.what());
+			return (false);
+		} catch (const std::exception& e) {
+			ROS_ERROR("%s", e.what());
+			return (false);
+		} catch (...) {
+			ROS_ERROR("UNKNOWN EXCEPTION");
+			return (false);
+		}
 
-       pcl_ros::transformAsMatrix(ros_transform, transform);
+		pcl_ros::transformAsMatrix(ros_transform, transform);
 
-       return (true);
-    }
+		return (true);
+	}
 
-
-	bool registerRequest( rosmrsmap::RegisterMap::Request &req, rosmrsmap::RegisterMap::Response &res ) {
+	/*
+	 * The Request &req comes with the name of the object model + the initial pose of the object
+	 * apparently the input point cloud does not come in the request, but instead the node
+	 * subscribes to a topic input_cloud and the processing continues in RegisterMap::dataCallback
+	 */
+	bool registerRequest(rosmrsmap::RegisterMap::Request &req,
+			rosmrsmap::RegisterMap::Response &res) {
 
 		object_name_ = req.object_name;
-		tf::poseMsgToEigen( req.init_pose, initial_pose_ );
+		tf::poseMsgToEigen(req.init_pose, initial_pose_);
 
 		lastObjectTransform_.setIdentity();
 		has_transform_ = false;
 
 		init_frame_ = req.init_frame;
 
-		if( object_name_ == "" ) {
+		if (object_name_ == "") {
 			sub_cloud_.shutdown();
 			register_map_ = false;
-		}
-		else {
+		} else {
 
 			ROS_INFO("loading map");
 
-			map_ = boost::shared_ptr< MultiResolutionSurfelMap >( new MultiResolutionSurfelMap( 0.0125f, 30.f ) );
-			if(!map_->load( map_folder_ + "/" + object_name_ + ".map" ))
-			{
+			//constructs the MRSmap
+			map_ = boost::shared_ptr<MultiResolutionSurfelMap>(
+					new MultiResolutionSurfelMap(0.0125f, 30.f));
+			if (!map_->load(map_folder_ + "/" + object_name_ + ".map")) {
 				responseId_++;
 				res.responseId = responseId_;
 				return false;
@@ -228,9 +222,10 @@ public:
 			map_->evaluateSurfels();
 			map_->buildShapeTextureFeatures();
 
-			map_->extents( model_mean_, model_cov_ );
+			map_->extents(model_mean_, model_cov_);
 
-			sub_cloud_ = nh_.subscribe( "input_cloud", 1, &RegisterMap::dataCallback, this );
+			sub_cloud_ = nh_.subscribe("input_cloud", 1,
+					&RegisterMap::dataCallback, this);
 			register_map_ = true;
 
 			first_frame_ = true;
@@ -238,7 +233,7 @@ public:
 			track_ = req.track;
 			once_ = req.once;
 
-			ROS_INFO_STREAM( "subscribed at " << sub_cloud_.getTopic() );
+			ROS_INFO_STREAM("subscribed at " << sub_cloud_.getTopic());
 
 		}
 
@@ -249,16 +244,15 @@ public:
 
 	}
 
-
 	void update() {
-		
-		if( !register_map_ || !has_transform_ )
+
+		if (!register_map_ || !has_transform_)
 			return;
 
-		if( once_ && !first_frame_ ) {
-			
+		if (once_ && !first_frame_) {
+
 			// just send out result/status
-			
+
 			tf::StampedTransform object_tf;
 
 			Eigen::Matrix4d objectTransform = lastObjectTransform_;
@@ -267,150 +261,177 @@ public:
 			object_tf.child_frame_id_ = object_name_;
 			object_tf.frame_id_ = output_frame_;
 
-			Eigen::Quaterniond q( objectTransform.block<3,3>(0,0) );
+			Eigen::Quaterniond q(objectTransform.block<3, 3>(0, 0));
 			object_tf.setIdentity();
-			object_tf.setRotation( tf::Quaternion( q.x(), q.y(), q.z(), q.w() ) );
-			object_tf.setOrigin( tf::Vector3( objectTransform(0,3), objectTransform(1,3), objectTransform(2,3) ) );
+			object_tf.setRotation(tf::Quaternion(q.x(), q.y(), q.z(), q.w()));
+			object_tf.setOrigin(
+					tf::Vector3(objectTransform(0, 3), objectTransform(1, 3),
+							objectTransform(2, 3)));
 
-			tf_broadcaster.sendTransform( object_tf );
-			
+			//ROS_INFO_STREAM("> Register map :dataCallback() publishing transform object_tf_.frame_id_ (init_frame_)=" << object_tf.frame_id_ << " child="<< object_tf.child_frame_id_<<std::endl);
+//			std::cout <<"Press enter to continue..."<<std::endl;
+//			std::cin.get();
+//			return;
+			tf_broadcaster.sendTransform(object_tf);
 
 			rosmrsmap::RegisterMapStatus status;
 			status.header.stamp = object_tf.stamp_;
 			status.header.frame_id = object_tf.frame_id_;
 			status.response_id = responseId_;
 			status.confidence = lastConfidence_;
-			pub_status_.publish( status );
-
+			pub_status_.publish(status);
 
 			rosmrsmap::ObjectTrackingData2 msg;
 			msg.header.stamp = object_tf.stamp_;
 			msg.header.frame_id = object_tf.frame_id_;
 			msg.object_name = object_name_;
-			tf::poseEigenToMsg( Eigen::Affine3d( objectTransform ), msg.object_pose );
+			tf::poseEigenToMsg(Eigen::Affine3d(objectTransform),
+					msg.object_pose);
 			msg.requestID = responseId_;
-			pub_result_.publish( msg );
-			
+			pub_result_.publish(msg);
 
 			// visualize model
-			pub_model_cloud.publish( model_cloud_ );
+			pub_model_cloud.publish(model_cloud_);
 
 			return;
-			
+
 		}
 
 	}
 
-
+	/*
+	 * The input point cloud which will be registered with the model comes here
+	 * It is the /segmentation_node/closest_object_cloud cloud provided by
+	 * the table top segmentation node
+	 * It comes in the frame of reference:
+	 */
 	void dataCallback(const sensor_msgs::PointCloud2ConstPtr& point_cloud) {
 
-		if( !register_map_ )
+		if (!register_map_)
 			return;
 
-		if( once_ && !first_frame_ ) {
+		if (once_ && !first_frame_) {
 			return;
 		}
 
-		ROS_INFO("registering");
+		ROS_INFO("registering.. ");
 		pcl::StopWatch sw;
 
-
-		pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudIn = pcl::PointCloud<pcl::PointXYZRGB>::Ptr( new pcl::PointCloud<pcl::PointXYZRGB>() );
+		//transform ROS msg into PCL point cloud
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudIn = pcl::PointCloud<
+				pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>());
 		pcl::fromROSMsg(*point_cloud, *pointCloudIn);
-    if ( pointCloudIn->points.empty() || (pointCloudIn->points.size() < 10) )
-      return;
+		if (pointCloudIn->points.empty() || (pointCloudIn->points.size() < 10))
+			return;
 
-		// create mrsmap from pointcloud
+		// create the MRSmap from the input point cloud
 		treeNodeAllocator_->reset();
-		boost::shared_ptr< MultiResolutionSurfelMap > currMap = boost::shared_ptr< MultiResolutionSurfelMap >( new MultiResolutionSurfelMap( map_->min_resolution_, map_->max_range_, treeNodeAllocator_ ) );
+		boost::shared_ptr<MultiResolutionSurfelMap> currMap = boost::shared_ptr<
+				MultiResolutionSurfelMap>(
+				new MultiResolutionSurfelMap(map_->min_resolution_,
+						map_->max_range_, treeNodeAllocator_));
 		currMap->imageAllocator_ = imageAllocator_;
 
 		currMap->params_.dist_dependency = dist_dep_;
 
-
-		std::vector< int > imageBorderIndices;
+		std::vector<int> imageBorderIndices;
 
 //		std::vector< int > pointIndices( pointCloudIn->points.size() );
 //		for( unsigned int i = 0; i < pointIndices.size(); i++ ) pointIndices[i] = i;
 //		currMap->addPoints( *pointCloudIn, pointIndices );
 
-		cv::Mat img_rgb( 480, 640, CV_8UC3, 0.f );
-		cv::Mat img_depth( 480, 640, CV_16UC1, 0.f );
-		mrsmap::reprojectPointCloudToImages( pointCloudIn, img_rgb, img_depth );
-		mrsmap::imagesToPointCloud( img_depth, img_rgb, "0", pointCloudIn );
-		currMap->addImage( *pointCloudIn, false, true );
+		//good idea, image coordinates hardcoded!
+		cv::Mat img_rgb(480, 640, CV_8UC3, 0.f);
+		cv::Mat img_depth(480, 640, CV_16UC1, 0.f);
+		mrsmap::reprojectPointCloudToImages(pointCloudIn, img_rgb, img_depth);
+		mrsmap::imagesToPointCloud(img_depth, img_rgb, "0", pointCloudIn);
+		currMap->addImage(*pointCloudIn, false, true);
 
 		currMap->octree_->root_->establishNeighbors();
-		currMap->markNoUpdateAtPoints( *pointCloudIn, imageBorderIndices );
+		currMap->markNoUpdateAtPoints(*pointCloudIn, imageBorderIndices);
 		currMap->evaluateSurfels();
 		currMap->buildShapeTextureFeatures();
 
+		//the initial_pose_ is the one that has been set from the .pose file
+		//it is the tf from object frame to base_link frame of reference
 		Eigen::Affine3d initPose = initial_pose_;
-		if( !track_ || (track_ && first_frame_) ) {
+		if (!track_ || (track_ && first_frame_)) {
 
-			// transform init pose to camera frame
-			if( init_frame_ != "" ) {
+			// transform init pose to base_link
+			//actually this pose should already be in base_link, since it is read from the one stored in the .pose file
+			if (init_frame_ != "") {
 
-				ROS_INFO_STREAM( "using init frame " << init_frame_ << std::endl );
+				//ROS_INFO_STREAM(
+				//		"> Register_map:dataCallback() init frame=" << init_frame_ <<" point cloud header frame_id="<<point_cloud->header.frame_id<< std::endl);
 
+				//init_frame_transform will tf from the camera to the base_link
 				Eigen::Matrix4f init_frame_transform;
-				if( lookupTransform( init_frame_, point_cloud->header.frame_id, init_frame_transform, point_cloud->header.stamp ) ) {
-					initPose = Eigen::Affine3d(init_frame_transform.cast<double>().inverse() * initial_pose_.matrix());
+				if (lookupTransform(init_frame_, point_cloud->header.frame_id,
+						init_frame_transform, point_cloud->header.stamp)) {
+					// initPose = tf_from_base_link_to_camera * tf_from_base_link_to_object
+					// unless the initial pose is a tf from camera to object, this multiplication doesn't make any sense at all
+					// if it were, it would be initPose = tf_from_base_link_to_camera * tf_from_camera_to_object = tf_from_base_link_to_object
+					initPose = Eigen::Affine3d(
+							init_frame_transform.cast<double>().inverse()
+									* initial_pose_.matrix());
 				}
 			}
 
 		}
 
-
 		// register scene to model
-//		Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
+		// if the tf above had made sense, this would be tf_from_object_to_base_link
 		Eigen::Matrix4d transform = initPose.matrix().inverse();
 
 		// initialize alignment by shifting the map centroids
 		Eigen::Vector3d scene_mean;
 		Eigen::Matrix3d scene_cov;
-		currMap->extents( scene_mean, scene_cov );
+		currMap->extents(scene_mean, scene_cov);
 
 		Eigen::Vector4d scene_mean4;
 		scene_mean4.head<3>() = scene_mean;
 		scene_mean4(3) = 1.0;
 		Eigen::Vector4d Tscene_mean4 = transform * scene_mean4;
 
-		if( (track_ && first_frame_) || !track_ ) {
-			transform.block<3,1>(0,3) += model_mean_ - Tscene_mean4.head<3>();
+		if ((track_ && first_frame_) || !track_) {
+			transform.block<3, 1>(0, 3) += model_mean_ - Tscene_mean4.head<3>();
 			first_frame_ = false;
 		}
 
-		pcl::PointCloud< pcl::PointXYZRGB >::Ptr corrSrc;
-		pcl::PointCloud< pcl::PointXYZRGB >::Ptr corrTgt;
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr corrSrc;
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr corrTgt;
 
 //#if SOFT_REGISTRATION
 		MultiResolutionSoftSurfelRegistration reg;
 		reg.params_.match_likelihood_use_color_ = false;
-		reg.estimateTransformation( *map_, *currMap, transform, 32.f * currMap->min_resolution_, currMap->min_resolution_, corrSrc, corrTgt, 100 );
+		reg.estimateTransformation(*map_, *currMap, transform,
+				32.f * currMap->min_resolution_, currMap->min_resolution_,
+				corrSrc, corrTgt, 100);
 //#else
 //		MultiResolutionSurfelRegistration reg;
 //		reg.estimateTransformation( *map_, *currMap, transform, 32.f * currMap->min_resolution_, currMap->min_resolution_, corrSrc, corrTgt, 100, 0, 5 );
 //#endif
 
-		ROS_INFO_STREAM( "registering took " << sw.getTimeSeconds() );
+		ROS_INFO_STREAM("registering took " << sw.getTimeSeconds());
 
 		// visualize scene
-		pcl::PointCloud< pcl::PointXYZRGB >::Ptr cloudv2 = pcl::PointCloud< pcl::PointXYZRGB >::Ptr( new pcl::PointCloud< pcl::PointXYZRGB >() );
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudv2 = pcl::PointCloud<
+				pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>());
 		cloudv2->header = pointCloudIn->header;
-		currMap->visualize3DColorDistribution( cloudv2, -1, -1, false );
+		currMap->visualize3DColorDistribution(cloudv2, -1, -1, false);
 //		pcl::transformPointCloud( *cloudv2, *cloudv2, transform );
-		pub_scene_cloud.publish( cloudv2 );
-
+		pub_scene_cloud.publish(cloudv2);
 
 		tf::StampedTransform object_tf;
 
 		Eigen::Matrix4d objectTransform = transform.inverse();
 
 		Eigen::Matrix4f cameraToInitTransform = Eigen::Matrix4f::Identity();
-		if( lookupTransform( init_frame_, point_cloud->header.frame_id, cameraToInitTransform, point_cloud->header.stamp ) ) {
+		if (lookupTransform(init_frame_, point_cloud->header.frame_id,
+				cameraToInitTransform, point_cloud->header.stamp)) {
 
-			objectTransform =  (cameraToInitTransform.cast<double>() * objectTransform).eval();
+			objectTransform = (cameraToInitTransform.cast<double>()
+					* objectTransform).eval();
 
 			object_tf.stamp_ = point_cloud->header.stamp;
 			object_tf.child_frame_id_ = object_name_;
@@ -418,8 +439,7 @@ public:
 
 			output_frame_ = init_frame_;
 
-		}
-		else {
+		} else {
 
 			object_tf.stamp_ = point_cloud->header.stamp;
 			object_tf.child_frame_id_ = object_name_;
@@ -430,27 +450,33 @@ public:
 		}
 
 		// visualize model
-		model_cloud_ = pcl::PointCloud< pcl::PointXYZRGB >::Ptr( new pcl::PointCloud< pcl::PointXYZRGB >() );
+		model_cloud_ = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
+				new pcl::PointCloud<pcl::PointXYZRGB>());
 		model_cloud_->header = pointCloudIn->header;
-		map_->visualize3DColorDistribution( model_cloud_, -1, -1, false );
-		pcl::transformPointCloud( *model_cloud_, *model_cloud_, objectTransform.cast<float>() );
+		map_->visualize3DColorDistribution(model_cloud_, -1, -1, false);
+		pcl::transformPointCloud(*model_cloud_, *model_cloud_,
+				objectTransform.cast<float>());
 		model_cloud_->header.frame_id = object_tf.frame_id_;
-		pub_model_cloud.publish( model_cloud_ );
-		ROS_ERROR_STREAM("model cloud size " << model_cloud_->points.size() );
-		ROS_ERROR_STREAM("frame_id " << model_cloud_->header.frame_id );
+		pub_model_cloud.publish(model_cloud_);
+		ROS_ERROR_STREAM("model cloud size " << model_cloud_->points.size());
+		ROS_ERROR_STREAM("frame_id " << model_cloud_->header.frame_id);
 
-		Eigen::Quaterniond q( objectTransform.block<3,3>(0,0) );
+		Eigen::Quaterniond q(objectTransform.block<3, 3>(0, 0));
 		object_tf.setIdentity();
-		object_tf.setRotation( tf::Quaternion( q.x(), q.y(), q.z(), q.w() ) );
-		object_tf.setOrigin( tf::Vector3( objectTransform(0,3), objectTransform(1,3), objectTransform(2,3) ) );
+		object_tf.setRotation(tf::Quaternion(q.x(), q.y(), q.z(), q.w()));
+		object_tf.setOrigin(
+				tf::Vector3(objectTransform(0, 3), objectTransform(1, 3),
+						objectTransform(2, 3)));
 
-		tf_broadcaster.sendTransform( object_tf );
+		//ROS_INFO_STREAM("> Register map :dataCallback() publishing transform object_tf_.frame_id_ (init_frame_)=" << object_tf.frame_id_ << " child="<< object_tf.child_frame_id_<<std::endl);
+//		std::cout <<"Press enter to continue..."<<std::endl;
+//		std::cin.get();
+//		return;
+		tf_broadcaster.sendTransform(object_tf);
 
 		lastObjectTransform_ = objectTransform;
 
 		has_transform_ = true;
-
-
 
 		double confidence = 1.0;
 
@@ -459,45 +485,40 @@ public:
 		reg_hard.params_.match_likelihood_use_color_ = false;
 		reg_hard.params_.model_visibility_max_depth_ = 13;
 
-		double matchLogLikelihood = reg_hard.matchLogLikelihood( *map_, *currMap, transform );
-		double selfLogLikelihood = reg_hard.selfMatchLogLikelihood( *map_ );
+		double matchLogLikelihood = reg_hard.matchLogLikelihood(*map_, *currMap,
+				transform);
+		double selfLogLikelihood = reg_hard.selfMatchLogLikelihood(*map_);
 
-		confidence = std::min( 1.0, std::max( 0.0, 4.0 * (matchLogLikelihood / selfLogLikelihood - 0.5) ) );
+		confidence = std::min(1.0,
+				std::max(0.0,
+						4.0 * (matchLogLikelihood / selfLogLikelihood - 0.5)));
 
-		ROS_INFO_STREAM( "detection match log likelihood: " << matchLogLikelihood );
-		ROS_INFO_STREAM( "detection self log likelihood: " << selfLogLikelihood );
-		ROS_INFO_STREAM( "detection confidence: " << confidence );
-
+		ROS_INFO_STREAM(
+				"detection match log likelihood: " << matchLogLikelihood);
+		ROS_INFO_STREAM("detection self log likelihood: " << selfLogLikelihood);
+		ROS_INFO_STREAM("detection confidence: " << confidence);
 
 		lastConfidence_ = confidence;
-
-
-
-
 
 		rosmrsmap::RegisterMapStatus status;
 		status.header.stamp = object_tf.stamp_;
 		status.header.frame_id = object_tf.frame_id_;
 		status.response_id = responseId_;
 		status.confidence = lastConfidence_;
-		pub_status_.publish( status );
+		pub_status_.publish(status);
 
 		rosmrsmap::ObjectTrackingData2 msg;
 		msg.header.stamp = object_tf.stamp_;
 		msg.header.frame_id = object_tf.frame_id_;
 		msg.object_name = object_name_;
-		tf::poseEigenToMsg( Eigen::Affine3d( objectTransform ), msg.object_pose );
+		tf::poseEigenToMsg(Eigen::Affine3d(objectTransform), msg.object_pose);
 		msg.requestID = responseId_;
-		pub_result_.publish( msg );
+		pub_result_.publish(msg);
 
-
-		if( track_ )
-			initial_pose_ = Eigen::Affine3d( transform.inverse().eval() );
+		if (track_)
+			initial_pose_ = Eigen::Affine3d(transform.inverse().eval());
 
 	}
-
-
-
 
 public:
 
@@ -505,10 +526,10 @@ public:
 	ros::Subscriber sub_cloud_;
 	ros::Publisher pub_status_, pub_result_;
 	pcl_ros::Publisher<pcl::PointXYZRGB> pub_model_cloud, pub_scene_cloud;
-	boost::shared_ptr< tf::TransformListener > tf_listener_;
+	boost::shared_ptr<tf::TransformListener> tf_listener_;
 	tf::TransformBroadcaster tf_broadcaster;
 
-	pcl::PointCloud< pcl::PointXYZRGB >::Ptr model_cloud_;
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr model_cloud_;
 
 	bool register_map_;
 	bool track_;
@@ -518,7 +539,7 @@ public:
 
 	std::string init_frame_, output_frame_;
 
-	boost::shared_ptr< MultiResolutionSurfelMap > map_;
+	boost::shared_ptr<MultiResolutionSurfelMap> map_;
 	Eigen::Vector3d model_mean_;
 	Eigen::Matrix3d model_cov_;
 
@@ -533,23 +554,23 @@ public:
 
 	double dist_dep_;
 
-	boost::shared_ptr< MultiResolutionSurfelMap::ImagePreAllocator > imageAllocator_;
-	boost::shared_ptr< spatialaggregate::OcTreeNodeDynamicAllocator< float, MultiResolutionSurfelMap::NodeValue > > treeNodeAllocator_;
+	boost::shared_ptr<MultiResolutionSurfelMap::ImagePreAllocator> imageAllocator_;
+	boost::shared_ptr<
+			spatialaggregate::OcTreeNodeDynamicAllocator<float,
+					MultiResolutionSurfelMap::NodeValue> > treeNodeAllocator_;
 
 	int responseId_;
 
 };
 
-
-
 int main(int argc, char** argv) {
 
 	ros::init(argc, argv, "register_map");
 	ros::NodeHandle n("register_map");
-	RegisterMap sm( n );
+	RegisterMap sm(n);
 
-	ros::Rate r( 30 );
-	while( ros::ok() ) {
+	ros::Rate r(30);
+	while (ros::ok()) {
 
 		sm.update();
 
@@ -557,7 +578,6 @@ int main(int argc, char** argv) {
 		r.sleep();
 
 	}
-
 
 	return 0;
 }

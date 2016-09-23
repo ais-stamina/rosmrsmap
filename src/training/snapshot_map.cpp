@@ -119,6 +119,10 @@ public:
 
 		tf_listener_ = boost::shared_ptr< tf::TransformListener >( new tf::TransformListener() );
 
+		//added to debug
+		m_debugObjPub = nh.advertise<geometry_msgs::PoseStamped>(
+					"debug_object", 1, true);
+
 		nh.param<double>( "max_resolution", max_resolution_, 0.0125 );
 		nh.param<double>( "max_radius", max_radius_, 30.0 );
 
@@ -166,7 +170,7 @@ public:
 		sub_cloud_ = nh_.subscribe( "input_cloud", 1, &SnapshotMap::dataCallback, this );
 		create_map_ = true;
 
-		ROS_INFO_STREAM( "subscribed at " << sub_cloud_.getTopic() );
+		ROS_INFO_STREAM("got request for object="<<object_name_<< " | subscribed at " << sub_cloud_.getTopic() );
 
 		res.responseId = responseId_ + 1;
 
@@ -174,7 +178,76 @@ public:
 
 	}
 
+	bool normalise_transform(Eigen::Matrix3d& eigenvectors, const sensor_msgs::PointCloud2ConstPtr& point_cloud){
 
+
+		geometry_msgs::PointStamped pt_0_base_link, pt_x_base_link;
+		geometry_msgs::PointStamped pt_0_camera, pt_x_camera;
+
+		//obtain base_link's (x) axis in camera coordinates
+		pt_0_base_link.header.frame_id = init_frame_;
+		pt_0_base_link.point.x = pt_0_base_link.point.y = pt_0_base_link.point.z = 0.;
+		pt_x_base_link.header.frame_id = init_frame_;
+		pt_x_base_link.point.x = 1.0;
+		pt_x_base_link.point.y = pt_x_base_link.point.z = 0.;
+
+		tf_listener_->transformPoint(point_cloud->header.frame_id,pt_0_base_link,pt_0_camera);
+		tf_listener_->transformPoint(point_cloud->header.frame_id,pt_x_base_link,pt_x_camera);
+
+		ROS_INFO_STREAM("pt_x_camera="<<pt_x_camera);
+		ROS_INFO_STREAM("pt_0_camera="<<pt_0_camera);
+		ROS_INFO_STREAM("point_cloud->header.frame_id="<<point_cloud->header.frame_id);
+
+		//base_link_x is the (x) axis of the base link frame of ref. in camera coordinates
+		Eigen::Vector3d base_link_x(pt_x_camera.point.x - pt_0_camera.point.x,pt_x_camera.point.y - pt_0_camera.point.y, pt_x_camera.point.z - pt_0_camera.point.z );
+
+		//we now have to look for the axis in the eigenvectors that is most orthogonal to base_link_x
+		double dot_x = fabs(Eigen::Vector3d(eigenvectors.col(2)).dot( base_link_x ));
+		double dot_y = fabs(Eigen::Vector3d(eigenvectors.col(1)).dot( base_link_x ));
+
+		if(dot_x > dot_y){
+			ROS_INFO_STREAM("base_link_x="<<base_link_x);
+			ROS_INFO_STREAM("object x="<<eigenvectors.col(2));
+			ROS_INFO_STREAM("object y="<<eigenvectors.col(1));
+			ROS_INFO_STREAM("object z="<<eigenvectors.col(0));
+
+			// x eigenvector
+			if( Eigen::Vector3d(eigenvectors.col(2)).dot( base_link_x ) > 0.0 ){
+				ROS_INFO("the object's (x) axis points in the same direction as base_link's (x) axis");
+				return false;
+			}
+			else{
+				ROS_INFO("the object's (x) axis points in opposite direction as base_link's (x) axis");
+				return true;
+			}
+		}
+		else {
+
+			ROS_INFO_STREAM("base_link_x="<<base_link_x);
+			ROS_INFO_STREAM("object x="<<eigenvectors.col(2));
+			ROS_INFO_STREAM("object y="<<eigenvectors.col(1));
+			ROS_INFO_STREAM("object z="<<eigenvectors.col(0));
+
+			// x eigenvector
+			if( Eigen::Vector3d(eigenvectors.col(1)).dot( base_link_x ) > 0.0 ){
+				ROS_INFO("the object's (y) axis points in the same direction as base_link's (x) axis");
+				return false;
+			}
+			else{
+				ROS_INFO("the object's (y) axis points in opposite direction as base_link's (x) axis");
+				return true;
+			}
+
+		}
+
+
+
+	}
+
+
+	/*
+	 * here comes the object cluster point cloud in camera frame of reference
+	 */
 	void dataCallback(const sensor_msgs::PointCloud2ConstPtr& point_cloud) {
 
 		if( !create_map_ )
@@ -207,10 +280,11 @@ public:
 		 * normalize it so that it always points downwards
 		 *
 		 */
+		// z eigenvector
 		if( Eigen::Vector3d(eigenvectors.col(0)).dot( Eigen::Vector3d::UnitZ() ) > 0.0 )
 			eigenvectors.col(0) = (-eigenvectors.col(0)).eval();
 
-		// transform from object reference frame to camera
+
 		Eigen::Matrix4d objectTransform = Eigen::Matrix4d::Identity();
 		objectTransform.block<3,1>(0,0) = eigenvectors.col(2);
 		objectTransform.block<3,1>(0,1) = eigenvectors.col(1);
@@ -218,11 +292,24 @@ public:
 		objectTransform.block<3,1>(0,3) = mean.block<3,1>(0,0);
 
 		if( objectTransform.block<3,3>(0,0).determinant() < 0 ) {
+			// x eigenvector
 			objectTransform.block<3,1>(0,0) = -objectTransform.block<3,1>(0,0);
 		}
 
+		eigenvectors.col(2) = objectTransform.block<3,1>(0,0);
+		eigenvectors.col(1) = objectTransform.block<3,1>(0,1);
+		eigenvectors.col(0) = objectTransform.block<3,1>(0,2);
+		if(normalise_transform(eigenvectors,point_cloud)){
+			// x eigenvector
+			objectTransform.block<3,1>(0,0) = -objectTransform.block<3,1>(0,0);
+			// y eigenvector
+			objectTransform.block<3,1>(0,1) = -objectTransform.block<3,1>(0,1);
+		}
+
+		// transform from camera frame of reference to object's main axes frame of reference
 		Eigen::Matrix4d objectTransformInv = objectTransform.inverse();
 
+		//the MRSmap of the object is stored in the frame of reference of the objects' eigen axis
 		pcl::PointCloud<pcl::PointXYZRGB>::Ptr objectPointCloud = pcl::PointCloud<pcl::PointXYZRGB>::Ptr( new pcl::PointCloud<pcl::PointXYZRGB>() );
 		pcl::transformPointCloud( *pointCloudIn, *objectPointCloud, (objectTransformInv).cast<float>() );
 
@@ -246,7 +333,7 @@ public:
 
 		if( init_frame_ != "" ) {
 
-			ROS_INFO_STREAM( "Looking up transform from <init_frame>=" << init_frame_ <<" to <point_cloud->header.frame_id>="<<point_cloud->header.frame_id );
+			ROS_INFO_STREAM( "Looking up transform to <init_frame>=" << init_frame_ <<" from <point_cloud->header.frame_id>="<<point_cloud->header.frame_id );
 
 			try {
 
@@ -254,7 +341,7 @@ public:
 				tf_listener_->lookupTransform( init_frame_, point_cloud->header.frame_id, point_cloud->header.stamp, tf );
 				Eigen::Affine3d init_frame_transform;
 				tf::transformTFToEigen( tf, init_frame_transform );
-
+				//obtains the transform of the object frame to the base_link frame of reference
 				objectTransform = (init_frame_transform.matrix() * objectTransform).eval();
 
 
@@ -289,6 +376,7 @@ public:
 		object_tf_.setRotation( tf::Quaternion( q.x(), q.y(), q.z(), q.w() ) );
 		object_tf_.setOrigin( tf::Vector3( objectTransform(0,3), objectTransform(1,3), objectTransform(2,3) ) );
 
+		//the object tf is from the camera frame of reference to the object's
 		object_tf_.stamp_ = point_cloud->header.stamp;
 		object_tf_.child_frame_id_ = object_name_;
 
@@ -298,10 +386,13 @@ public:
 		else
 			object_tf_.frame_id_ = init_frame_;
 
+		first_publication_time = ros::Time::now();
 		if(do_publish_tf_){
 			//ROS_INFO_STREAM("object_tf_.frame_id_="<<object_tf_.frame_id_);
+			//ROS_INFO_STREAM("> Snapshot map :dataCallback() publishing transform object_tf_.frame_id_ (init_frame_)=" << object_tf_.frame_id_ << " child="<< object_tf_.child_frame_id_<<std::endl);
+//			std::cout <<"Press enter to continue..."<<std::endl;
+//			std::cin.get();
 			tf_broadcaster.sendTransform( object_tf_ );
-			first_publication_time = ros::Time::now();
 
 		}
 
@@ -328,12 +419,15 @@ public:
 			object_tf_.stamp_ = ros::Time::now();
 			if(do_publish_tf_){
 				//ROS_INFO_STREAM("> Snapshot_map :update() object_tf_.frame_id_ (init_frame_)=" << object_tf_.frame_id_ << " child="<< object_tf_.child_frame_id_<<std::endl);
+				//ROS_INFO_STREAM("> Snapshot map :update() publishing transform object_tf_.frame_id_ (init_frame_)=" << object_tf_.frame_id_ << " child="<< object_tf_.child_frame_id_<<std::endl);
+//				std::cout <<"Press enter to continue..."<<std::endl;
+//				std::cin.get();
 				tf_broadcaster.sendTransform( object_tf_ );
 
 
 
 				ros::Duration elapsed_time = ros::Time::now() - first_publication_time;
-				if(elapsed_time.toSec()>3)
+				if(elapsed_time.toSec()>100)
 					do_publish_tf_ = false;
 			}
 
@@ -356,6 +450,8 @@ public:
 	pcl_ros::Publisher<pcl::PointXYZRGB> pub_cloud;
 	boost::shared_ptr< tf::TransformListener > tf_listener_;
 	tf::TransformBroadcaster tf_broadcaster;
+
+	ros::Publisher m_debugObjPub;
 
 	double max_resolution_, max_radius_, dist_dep_;
 
