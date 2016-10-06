@@ -427,7 +427,7 @@ public:
 
 
 				ros::Duration elapsed_time = ros::Time::now() - first_publication_time;
-				if(elapsed_time.toSec()>100)
+				if(elapsed_time.toSec()>10)
 					do_publish_tf_ = false;
 			}
 
