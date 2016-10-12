@@ -169,6 +169,8 @@ public:
 		object_name_ = req.str;
 		sub_cloud_ = nh_.subscribe( "input_cloud", 1, &SnapshotMap::dataCallback, this );
 		create_map_ = true;
+		do_publish_tf_ = true;
+		object_available = false;
 
 		ROS_INFO_STREAM("got request for object="<<object_name_<< " | subscribed at " << sub_cloud_.getTopic() );
 
@@ -244,6 +246,22 @@ public:
 
 	}
 
+	void flatten_roll_pitch(Eigen::Matrix4d& objectTransform){
+		Eigen::Vector3d ea = objectTransform.block<3,3>(0,0).eulerAngles(0, 1, 2);
+		ROS_INFO_STREAM(" in euler angles="<<ea);
+		ea[0] = 0.;
+		ea[1] = 0.;
+
+		Eigen::Quaterniond tmp_matrix = Eigen::AngleAxisd(ea[0], Eigen::Vector3d::UnitX())
+			   *Eigen::AngleAxisd(ea[1], Eigen::Vector3d::UnitY())
+			   *Eigen::AngleAxisd(ea[2], Eigen::Vector3d::UnitZ());
+
+
+		objectTransform.block<3,3>(0,0) = tmp_matrix.toRotationMatrix();
+
+
+	}
+
 
 	/*
 	 * here comes the object cluster point cloud in camera frame of reference
@@ -271,6 +289,10 @@ public:
 		pcl::computeMeanAndCovarianceMatrix( *pointCloudIn, cov, mean );
 		pcl::eigen33( cov, eigenvectors, eigenvalues );
 
+
+
+
+
 		/*
 		 * Added comment to this misterious sign change:
 		 * Assuming the eigenvectors of the object come in the camera frame of reference
@@ -291,20 +313,35 @@ public:
 		objectTransform.block<3,1>(0,2) = eigenvectors.col(0);
 		objectTransform.block<3,1>(0,3) = mean.block<3,1>(0,0);
 
+
+
 		if( objectTransform.block<3,3>(0,0).determinant() < 0 ) {
-			// x eigenvector
+			// x eigenvector (z axis)
 			objectTransform.block<3,1>(0,0) = -objectTransform.block<3,1>(0,0);
 		}
 
-		eigenvectors.col(2) = objectTransform.block<3,1>(0,0);
-		eigenvectors.col(1) = objectTransform.block<3,1>(0,1);
-		eigenvectors.col(0) = objectTransform.block<3,1>(0,2);
+		/*
+		 * -----------------------------
+		 * set roll and pitch to 0,
+		 * leave only the yaw as a free parameter
+		 */
+		flatten_roll_pitch(objectTransform);
+		/*
+		 * ---------------------------
+		 */
+
+
+		eigenvectors.col(2) = objectTransform.block<3,1>(0,0); // x axis
+		eigenvectors.col(1) = objectTransform.block<3,1>(0,1); // y axis
+		eigenvectors.col(0) = objectTransform.block<3,1>(0,2); // z axis
 		if(normalise_transform(eigenvectors,point_cloud)){
 			// x eigenvector
 			objectTransform.block<3,1>(0,0) = -objectTransform.block<3,1>(0,0);
 			// y eigenvector
 			objectTransform.block<3,1>(0,1) = -objectTransform.block<3,1>(0,1);
 		}
+
+
 
 		// transform from camera frame of reference to object's main axes frame of reference
 		Eigen::Matrix4d objectTransformInv = objectTransform.inverse();
@@ -379,6 +416,7 @@ public:
 		//the object tf is from the camera frame of reference to the object's
 		object_tf_.stamp_ = point_cloud->header.stamp;
 		object_tf_.child_frame_id_ = object_name_;
+		object_available = true; //the object_tf_ member variable now matches the last requested snapshot
 
 		if( init_frame_ == "" ) {
 			object_tf_.frame_id_ = point_cloud->header.frame_id;
@@ -387,9 +425,10 @@ public:
 			object_tf_.frame_id_ = init_frame_;
 
 		first_publication_time = ros::Time::now();
+		ROS_INFO_STREAM("first_publication_time="<<first_publication_time<<" do_publish_tf_="<<do_publish_tf_);
 		if(do_publish_tf_){
 			//ROS_INFO_STREAM("object_tf_.frame_id_="<<object_tf_.frame_id_);
-			//ROS_INFO_STREAM("> Snapshot map :dataCallback() publishing transform object_tf_.frame_id_ (init_frame_)=" << object_tf_.frame_id_ << " child="<< object_tf_.child_frame_id_<<std::endl);
+			ROS_INFO_STREAM("> Snapshot map :dataCallback() publishing transform object_tf_.frame_id_ (init_frame_)=" << object_tf_.frame_id_ << " child="<< object_tf_.child_frame_id_<<std::endl);
 //			std::cout <<"Press enter to continue..."<<std::endl;
 //			std::cin.get();
 			tf_broadcaster.sendTransform( object_tf_ );
@@ -410,6 +449,9 @@ public:
 
 	void update() {
 
+		if(!object_available)
+			return;
+		object_mutex.lock();
 		std_msgs::Int32 status;
 		status.data = responseId_;
 		pub_status_.publish( status );
@@ -419,7 +461,7 @@ public:
 			object_tf_.stamp_ = ros::Time::now();
 			if(do_publish_tf_){
 				//ROS_INFO_STREAM("> Snapshot_map :update() object_tf_.frame_id_ (init_frame_)=" << object_tf_.frame_id_ << " child="<< object_tf_.child_frame_id_<<std::endl);
-				//ROS_INFO_STREAM("> Snapshot map :update() publishing transform object_tf_.frame_id_ (init_frame_)=" << object_tf_.frame_id_ << " child="<< object_tf_.child_frame_id_<<std::endl);
+				ROS_INFO_STREAM("> Snapshot map :update() publishing transform object_tf_.frame_id_ (init_frame_)=" << object_tf_.frame_id_ << " child="<< object_tf_.child_frame_id_<<std::endl);
 //				std::cout <<"Press enter to continue..."<<std::endl;
 //				std::cin.get();
 				tf_broadcaster.sendTransform( object_tf_ );
@@ -427,7 +469,7 @@ public:
 
 
 				ros::Duration elapsed_time = ros::Time::now() - first_publication_time;
-				if(elapsed_time.toSec()>10)
+				if(elapsed_time.toSec()>5)
 					do_publish_tf_ = false;
 			}
 
@@ -437,6 +479,7 @@ public:
 			cloudv->header = pcl_conversions::toPCL( header );
 			pub_cloud.publish( cloudv );
 		}
+		object_mutex.unlock();
 
 
 	}
@@ -455,7 +498,7 @@ public:
 
 	double max_resolution_, max_radius_, dist_dep_;
 
-	bool create_map_, do_publish_tf_;
+	bool create_map_, do_publish_tf_, object_tf_refreshed_;
 	ros::Time first_publication_time;
 
 	ros::ServiceServer snapshot_service_,object_pose_service_;
