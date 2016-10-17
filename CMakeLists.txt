@@ -47,6 +47,7 @@ add_service_files(
   ObjectPoseService.srv
   StringService.srv
   RegisterMap.srv
+  Broadcaster.srv
   ObjectTrackingRequest.srv
   
 )
@@ -81,6 +82,10 @@ target_link_libraries(snapshot_map  ${catkin_LIBRARIES})
 add_executable(register_map src/perception/register_map.cpp )
 add_dependencies(register_map rosmrsmap_gencpp)
 target_link_libraries(register_map  ${catkin_LIBRARIES})
+
+add_executable(rebroadcaster src/training/rebroadcaster.cpp )
+add_dependencies(rebroadcaster rosmrsmap_gencpp)
+target_link_libraries(rebroadcaster  ${catkin_LIBRARIES})
 
 
 add_executable(collect_data src/training/collect_data.cpp )

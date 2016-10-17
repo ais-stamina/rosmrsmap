@@ -189,7 +189,7 @@ public:
 
 	/*
 	 * The Request &req comes with the name of the object model + the initial pose of the object
-	 * apparently the input point cloud does not come in the request, but instead the node
+	 * The input point cloud does not come in the request, but instead the node
 	 * subscribes to a topic input_cloud and the processing continues in RegisterMap::dataCallback
 	 */
 	bool registerRequest(rosmrsmap::RegisterMap::Request &req,
