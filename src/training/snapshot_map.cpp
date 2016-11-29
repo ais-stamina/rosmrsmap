@@ -325,7 +325,7 @@ public:
 		 * set roll and pitch to 0,
 		 * leave only the yaw as a free parameter
 		 */
-		flatten_roll_pitch(objectTransform);
+		//flatten_roll_pitch(objectTransform);
 		/*
 		 * ---------------------------
 		 */
